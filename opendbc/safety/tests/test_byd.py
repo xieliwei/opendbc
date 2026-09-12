@@ -80,6 +80,41 @@ class TestBydSafety(common.CarSafetyTest, common.AngleSteeringSafetyTest):
     values = {"RAW_THROTTLE": int(gas * 100)}
     return self.packer.make_can_msg_safety("DRIVE_STATE", self.MAIN_BUS, values)
 
+  def _driver_torque_msg(self, torque: float):
+    values = {"DRIVER_TORQUE": torque}
+    return self.packer.make_can_msg_safety("STEERING_TORQUE", self.MAIN_BUS, values)
+
+  def test_steering_wheel_disengage(self):
+    # BYD disengages when the driver holds the wheel against angle control. The EPS measurement
+    # is attenuated too far to see that, so this reads column torque and debounces it.
+    frames = CarControllerParams.STEER_DRIVER_DISENGAGE_FRAMES
+    for sign in (-1, 1):
+      for torque in (CarControllerParams.STEER_DRIVER_DISENGAGE, CarControllerParams.STEER_DRIVER_DISENGAGE + 5):
+        should_disengage = torque > CarControllerParams.STEER_DRIVER_DISENGAGE
+
+        self.safety.set_controls_allowed(True)
+        for _ in range(frames - 1):
+          self.assertTrue(self._rx(self._driver_torque_msg(sign * torque)))
+          self.assertFalse(self.safety.get_steering_disengage_prev())
+          self.assertTrue(self.safety.get_controls_allowed())
+
+        self.assertTrue(self._rx(self._driver_torque_msg(sign * torque)))
+        self.assertEqual(should_disengage, self.safety.get_steering_disengage_prev())
+        self.assertEqual(not should_disengage, self.safety.get_controls_allowed())
+
+        # one frame under the threshold resets the debounce, and controls stay disallowed
+        self.assertTrue(self._rx(self._driver_torque_msg(0)))
+        self.assertFalse(self.safety.get_steering_disengage_prev())
+        self.assertEqual(not should_disengage, self.safety.get_controls_allowed())
+
+  def test_driver_torque_checksum(self):
+    # STEERING_TORQUE is checksum checked so the debounce counts the same frames as CarState
+    msg = self._driver_torque_msg(0)
+    self.assertTrue(self._rx(msg))
+
+    msg.data[7] ^= 0xFF
+    self.assertFalse(self._rx(msg))
+
   def test_angle_cmd_when_enabled(self):
     # We properly test lateral acceleration and jerk below
     pass
