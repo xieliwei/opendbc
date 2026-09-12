@@ -265,5 +265,33 @@ class TestBydSafety(common.CarSafetyTest, common.AngleSteeringSafetyTest):
         self.assertTrue(self._tx(self._angle_cmd_msg(0, True)))
 
 
+class TestBydIgnition(unittest.TestCase):
+  TX_MSGS: list = []
+
+  def setUp(self):
+    self.safety = libsafety_py.libsafety
+    self.safety.init_tests()
+    self.packer = CANPackerSafety("byd_atto3")
+
+  def _msg(self, gear, bus=0):
+    return self.packer.make_can_msg_safety("DRIVE_STATE", bus, {"GEAR": gear})
+
+  def test_ignition_on_for_every_valid_gear(self):
+    for gear in (1, 2, 3, 4):
+      self.safety.ignition_can_hook(self._msg(gear))
+      self.assertTrue(self.safety.get_ignition_can(), f"gear {gear}")
+
+  def test_ignition_stays_on_when_gear_zero(self):
+    # Off is the 2s timeout, not GEAR==0
+    self.safety.ignition_can_hook(self._msg(4))
+    self.assertTrue(self.safety.get_ignition_can())
+    self.safety.ignition_can_hook(self._msg(0))
+    self.assertTrue(self.safety.get_ignition_can())
+
+  def test_ignition_ignores_other_bus(self):
+    self.safety.ignition_can_hook(self._msg(4, bus=2))
+    self.assertFalse(self.safety.get_ignition_can())
+
+
 if __name__ == "__main__":
   unittest.main()
