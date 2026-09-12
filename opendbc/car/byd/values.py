@@ -4,7 +4,7 @@ from enum import IntFlag, StrEnum
 from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, structs
 from opendbc.car.lateral import AngleSteeringLimitsVM
 from opendbc.car.docs_definitions import CarDocs, CarHarness, CarParts
-from opendbc.car.fw_query_definitions import FwQueryConfig
+from opendbc.car.fw_query_definitions import FwQueryConfig, Request, StdQueries
 from opendbc.car.vin import Vin
 
 Ecu = structs.CarParams.Ecu
@@ -84,8 +84,24 @@ def match_fw_to_car_fuzzy(live_fw_versions, vin, offline_fw_versions) -> set[str
 
 
 FW_QUERY_CONFIG = FwQueryConfig(
-  fw_version_regex=br"PLACEHOLDER_FOR_VIN_FINGERPRINT",
-  requests=[],
+  requests=[
+    # BYD rejects MANUFACTURER_SOFTWARE_VERSION (0xF188). F195 is 6 raw bytes.
+    Request(
+      [StdQueries.SUPPLIER_SOFTWARE_VERSION_REQUEST],
+      [StdQueries.SUPPLIER_SOFTWARE_VERSION_RESPONSE],
+      bus=0,
+    ),
+  ],
+  extra_ecus=[
+    (Ecu.fwdCamera, 0x704, None),
+    (Ecu.abs, 0x782, None),
+    (Ecu.eps, 0x783, None),
+    (Ecu.fwdRadar, 0x7f2, None),
+    (Ecu.engine, 0x7e0, None),
+    (Ecu.srs, 0x7f1, None),
+  ],
+  non_essential_ecus={Ecu.fwdCamera: [CAR.BYD_ATTO_3]},
+  fw_version_regex=rb"[\x00-\xff]{6}",
   match_fw_to_car_fuzzy=match_fw_to_car_fuzzy,
 )
 
