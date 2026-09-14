@@ -132,7 +132,9 @@ class TestBydSafety(common.CarSafetyTest, common.AngleSteeringSafetyTest):
       self.assertTrue(self._rx(msg))
 
   def test_stock_steer_passthrough(self):
-    # Idle: camera steer and HUD reach the car. OP commanding blocks both.
+    # Idle: camera steer and HUD reach the car. OP STEER_REQ=1 blocks both.
+    # After OP drops, steer forwards immediately; HUD stays blocked ~2s so
+    # a camera LKAS_STATE=4 blip does not paint the cluster.
     self.assertEqual(0, self.safety.safety_fwd_hook(2, STEERING_MODULE_ADAS))
     self.assertEqual(0, self.safety.safety_fwd_hook(2, LKAS_HUD_ADAS))
 
@@ -146,12 +148,14 @@ class TestBydSafety(common.CarSafetyTest, common.AngleSteeringSafetyTest):
 
     self.assertTrue(self._tx(self._angle_cmd_msg(0, False)))
     self.assertEqual(0, self.safety.safety_fwd_hook(2, STEERING_MODULE_ADAS))
-    self.assertEqual(0, self.safety.safety_fwd_hook(2, LKAS_HUD_ADAS))
+    self.assertEqual(-1, self.safety.safety_fwd_hook(2, LKAS_HUD_ADAS))
 
     self.assertTrue(self._tx(self._angle_cmd_msg(0, True)))
     t = (self.__class__.cnt_angle_cmd - 1) * int(1e6 / self.LATERAL_FREQUENCY)
     self.safety.set_timer(t + 201000)
     self.assertEqual(0, self.safety.safety_fwd_hook(2, STEERING_MODULE_ADAS))
+    self.assertEqual(-1, self.safety.safety_fwd_hook(2, LKAS_HUD_ADAS))
+    self.safety.set_timer(t + 2001000)
     self.assertEqual(0, self.safety.safety_fwd_hook(2, LKAS_HUD_ADAS))
 
   def test_angle_cmd_when_enabled(self):

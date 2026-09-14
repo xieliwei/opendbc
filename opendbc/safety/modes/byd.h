@@ -12,6 +12,7 @@ static bool byd_op_lat = false;
 static uint32_t byd_op_lat_ts = 0;
 
 #define BYD_OP_LAT_TIMEOUT_US 200000U
+#define BYD_OP_HUD_TIMEOUT_US 2000000U
 
 static bool byd_stock_lat_allowed(void) {
   if (!byd_op_lat) {
@@ -23,6 +24,13 @@ static bool byd_stock_lat_allowed(void) {
     return true;
   }
   return false;
+}
+
+static bool byd_stock_hud_allowed(void) {
+  if (byd_op_lat_ts == 0U) {
+    return true;
+  }
+  return safety_get_ts_elapsed(microsecond_timer_get(), byd_op_lat_ts) > BYD_OP_HUD_TIMEOUT_US;
 }
 
 static uint32_t byd_get_checksum(const CANPacket_t *msg) {
@@ -130,8 +138,13 @@ static bool byd_tx_hook(const CANPacket_t *msg) {
 
 static bool byd_fwd_hook(int bus_num, int addr) {
   bool block_msg = false;
-  if ((bus_num == 2) && ((addr == 0x1E2) || (addr == 0x316))) {
-    block_msg = !byd_stock_lat_allowed();
+  if (bus_num == 2) {
+    if (addr == 0x1E2) {
+      block_msg = !byd_stock_lat_allowed();
+    } else if (addr == 0x316) {
+      // Camera paints LKAS_STATE=4 for ~0.5s after OP drops STEER_REQ.
+      block_msg = !byd_stock_hud_allowed();
+    }
   }
   return block_msg;
 }
@@ -140,6 +153,7 @@ static safety_config byd_init(uint16_t param) {
   SAFETY_UNUSED(param);
   byd_driver_torque_frames = 0;
   byd_op_lat = false;
+  byd_op_lat_ts = 0;
 
   static const CanMsg BYD_TX_MSGS[] = {
     {0x1E2, 0, 8, .check_relay = true, .disable_static_blocking = true},   // STEERING_MODULE_ADAS

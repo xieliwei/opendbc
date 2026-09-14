@@ -6,7 +6,7 @@ from opendbc.can.parser import CANParser
 from opendbc.car import Bus
 from opendbc.car.byd import bydcan
 from opendbc.car.byd.carcontroller import CarController
-from opendbc.car.byd.carstate import cruise_enabled
+from opendbc.car.byd.carstate import cruise_enabled, lkas_limited
 from opendbc.car.byd.values import DBC, CAR, CarControllerParams as CCP
 
 
@@ -130,6 +130,16 @@ class TestBydCruiseGate(unittest.TestCase):
     self.assertTrue(cruise_enabled(acc_state=3, lkas_state=1))
     self.assertTrue(cruise_enabled(acc_state=5, lkas_state=2))
     self.assertFalse(cruise_enabled(acc_state=2, lkas_state=1))
+
+
+class TestBydLkasLimited(unittest.TestCase):
+  def test_state4_only_while_acc_engaged(self):
+    self.assertTrue(lkas_limited(acc_state=3, lkas_state=4))
+    self.assertTrue(lkas_limited(acc_state=5, lkas_state=4))
+    self.assertFalse(lkas_limited(acc_state=0, lkas_state=4))
+    self.assertFalse(lkas_limited(acc_state=2, lkas_state=4))
+    self.assertFalse(lkas_limited(acc_state=3, lkas_state=1))
+    self.assertFalse(lkas_limited(acc_state=3, lkas_state=2))
 
 
 class TestBydDbcObserve(unittest.TestCase):

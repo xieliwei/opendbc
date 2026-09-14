@@ -22,6 +22,11 @@ def cruise_enabled(acc_state: int, lkas_state: int) -> bool:
   return acc_state in (3, 5) and lkas_state in (1, 2)
 
 
+def lkas_limited(acc_state: int, lkas_state: int) -> bool:
+  # Camera LKAS_STATE 4 after ACC-off is a handoff blip, not an OP steer fault.
+  return acc_state in (3, 5) and lkas_state == 4
+
+
 class CarState(CarStateBase):
   def __init__(self, CP):
     super().__init__(CP)
@@ -66,10 +71,12 @@ class CarState(CarStateBase):
       self.eps_engaged = not cp.vl["STEERING_TORQUE"]["LKS_PREPARED"]
       self.eps_target_angle = cp.vl["STEERING_TORQUE"]["TARGET_ANGLE"]
 
-    # LKAS_STATE 4 = limited/faulted (cluster "LKS is limited"). Also fault when we ask
+    acc_state = int(cp_cam.vl["ACC_HUD_ADAS"]["ACC_STATE"])
+    lkas_state = int(cp_cam.vl["LKAS_HUD_ADAS"]["LKAS_STATE"])
+
+    # LKAS_STATE 4 while ACC is still 3/5 is "LKS is limited". Also fault when we ask
     # and the EPS stays idle for >1 s (carcontroller sets steer_not_accepted).
-    ret.steerFaultTemporary = (int(cp_cam.vl["LKAS_HUD_ADAS"]["LKAS_STATE"]) == 4 or
-                               self.steer_not_accepted)
+    ret.steerFaultTemporary = lkas_limited(acc_state, lkas_state) or self.steer_not_accepted
 
     # gas / brake
     ret.gasPressed = cp.vl["PEDAL"]["GAS_PEDAL"] > 0
@@ -117,8 +124,6 @@ class CarState(CarStateBase):
     # Follow stock ACC only when LKS is on so ACC can run without engaging OP.
     # Reporting enabled=False while ACC is on must not trip controlsd's cancel spoof.
     ret.cruiseState.speed = cp_cam.vl["ACC_HUD_ADAS"]["SET_SPEED"] * CV.KPH_TO_MS
-    acc_state = int(cp_cam.vl["ACC_HUD_ADAS"]["ACC_STATE"])
-    lkas_state = int(cp_cam.vl["LKAS_HUD_ADAS"]["LKAS_STATE"])
     ret.cruiseState.available = acc_state in (2, 3, 5)
     ret.cruiseState.enabled = cruise_enabled(acc_state, lkas_state)
     ret.cruiseState.standstill = bool(cp_cam.vl["ACC_CMD"]["STANDSTILL_STATE"])
