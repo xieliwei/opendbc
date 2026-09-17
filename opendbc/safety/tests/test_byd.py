@@ -181,13 +181,16 @@ class TestBydSafety(common.CarSafetyTest, common.AngleSteeringSafetyTest):
 
   def test_rx_checksum(self):
     # 8-byte BYD frames use (~sum) in the last byte. Fleet logs match that algo on
-    # STEERING_TORQUE, WHEELSPEED_CLEAN, and ACC_HUD_ADAS. STEER_MODULE_2 is 4-bit and
-    # DRIVE_STATE has no checksum, so those stay ignored.
+    # STEERING_TORQUE, WHEELSPEED_CLEAN, ACC_HUD_ADAS, PCM_BUTTONS, PEDAL, and
+    # DRIVE_STATE. STEER_MODULE_2 is 4-bit, so that stays ignored.
     checked = (
       self._driver_torque_msg(0),
       self._speed_msg(0),
       self._pcm_status_msg(False),
       self._lkas_hud_msg(1),
+      self._lks_btn_msg(False),
+      self._user_gas_msg(0),
+      self._user_brake_msg(False),
     )
     for msg in checked:
       self.assertTrue(self._rx(msg))
@@ -196,7 +199,6 @@ class TestBydSafety(common.CarSafetyTest, common.AngleSteeringSafetyTest):
 
     ignored = (
       self._angle_meas_msg(0),
-      self._user_brake_msg(False),
     )
     for msg in ignored:
       self.assertTrue(self._rx(msg))
