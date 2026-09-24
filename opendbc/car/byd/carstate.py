@@ -110,12 +110,14 @@ class CarState(CarStateBase):
     ret.leftBlinker = bool(cp.vl["STALKS"]["LEFT_BLINKER"])
     ret.rightBlinker = bool(cp.vl["STALKS"]["RIGHT_BLINKER"])
 
-    # cereal has no RCTA field; Subaru folds it into the blindspot hooks.
+    # Side is LEFT/RIGHT_APPROACH. RCW (66d0) is side-agnostic HUD+chime -- do not OR
+    # into leftBlindspot (Drive 52 right RCW would false-left). RCTA_RIGHT is reverse-only.
     # RIGHT_2 (0xc4) shows up on parked 95c4 without RCTA_RIGHT; do not OR it.
-    rcta_left = bool(cp.vl["BSD_RADAR"]["RCTA_LEFT"] or cp.vl["BSD_RADAR"]["RCTA_LEFT_2"])
-    rcta_right = bool(cp.vl["BSD_RADAR"]["RCTA_RIGHT"])
-    ret.leftBlindspot = (cp.vl["BSD_RADAR"]["LEFT_APPROACH"] != 0) or rcta_left
-    ret.rightBlindspot = (cp.vl["BSD_RADAR"]["RIGHT_APPROACH"] != 0) or rcta_right
+    ret.leftBlindspot = cp.vl["BSD_RADAR"]["LEFT_APPROACH"] != 0
+    ret.rightBlindspot = (cp.vl["BSD_RADAR"]["RIGHT_APPROACH"] != 0) or bool(cp.vl["BSD_RADAR"]["RCTA_RIGHT"])
+
+    # PCW pre-warning (0x32F byte2 0x36). Silent cereal event; no stockAeb.
+    ret.stockFcw = int(cp_cam.vl["PCW_ADAS"]["PCW_STATE"]) == 0x36
 
     # doors / belt
     ret.doorOpen = any((
