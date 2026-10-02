@@ -476,6 +476,7 @@ struct CarParams {
   minSteerSpeed @8 :Float32;
   steerAtStandstill @77 :Bool;  # is steering available at standstill? just check if it faults
   ignitionLineAndCan @78 :Bool;  # require line and CAN ignition (default is OR)
+  hudLaneFromModel @79 :Bool;  # left/rightLaneVisible from model laneLineProbs (default always visible)
   safetyConfigs @62 :List(SafetyConfig);
   alternativeExperience @65 :Int16;      # panda flag for features like no disengage on gas
 
