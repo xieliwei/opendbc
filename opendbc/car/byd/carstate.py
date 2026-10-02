@@ -62,6 +62,7 @@ class CarState(CarStateBase):
     self.camera_acc_state = 0
     self.acc_cmd_stock = {}
     self.acc_hud_stock = {}
+    self.steer_adas_stock = {}
     self.pcm_buttons_new = []
     self.button_prev = {name: False for name, _btype in _BUTTONS}
     self.lks_off_alert = 0
@@ -217,8 +218,9 @@ class CarState(CarStateBase):
       ret.cruiseState.speed = cp_cam.vl["ACC_HUD_ADAS"]["SET_SPEED"] * CV.KPH_TO_MS
       ret.cruiseState.enabled = cruise_enabled(acc_state, self.lks_enabled)
 
-    # forward stock LKAS HUD
+    # forward stock LKAS HUD and camera lateral (for claim-time passthrough)
     self.lkas_hud = copy.copy(cp_cam.vl["LKAS_HUD_ADAS"])
+    self.steer_adas_stock = copy.copy(cp_cam.vl["STEERING_MODULE_ADAS"])
 
     return ret
 

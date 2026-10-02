@@ -43,6 +43,13 @@ def create_steering_control(packer, apply_angle: float, lat_active: bool, counte
   return packer.make_can_msg("STEERING_MODULE_ADAS", 0, values)
 
 
+def create_steering_control_passthrough(packer, stock_values: dict, counter: int):
+  # Camera 0x1E2 while we claim the channel (e.g. long-mode HUD hold) so emergency
+  # LKA can still reach the EPS. COUNTER follows our 50 Hz slot.
+  values = {**stock_values, "COUNTER": counter}
+  return packer.make_can_msg("STEERING_MODULE_ADAS", 0, values)
+
+
 def create_acc_cmd(packer, accel: float, long_active: bool, hold: bool, resume: bool, counter: int):
   # Idle 64 64 64 80 50 00. Active sets both ACC_ON bits. Hold is byte 5 0x31.
   # Stock drives off from a hold with STANDSTILL_RESUME=1, STANDSTILL_STATE=0 and

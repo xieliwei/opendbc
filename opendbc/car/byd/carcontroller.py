@@ -52,6 +52,7 @@ class CarController(CarControllerBase):
     self.pcm_buttons_ts_last = 0
     self.lks_relay_tick = False
     self.hold_steer = 0
+    self.hud_release = 0
     self.eps_idle_frames = 0
     self.yield_hold = 0
     self.standstill_hold = False
@@ -217,19 +218,23 @@ class CarController(CarControllerBase):
     actuators = CC.actuators
     hud_control = CC.hudControl
 
-    # The camera flashes LKAS_STATE 4 for a few seconds after a cancel. In long mode
-    # the wheel is ours, so keep painting it until that has passed.
-    if self.CP.openpilotLongitudinalControl and self.enabled_last and not CC.enabled:
-      self._hold_for(CarControllerParams.HUD_RELEASE_FRAMES)
+    # The camera flashes LKAS_STATE 4 for ~2.5 s after ACC main off. In long mode keep
+    # painting 0x316 for 3 s (HUD_RELEASE) so that blip does not show; 0x1E2 is camera
+    # passthrough so emergency LKA can still reach the EPS.
+    if CC.enabled:
+      self.hud_release = 0
+    elif self.CP.openpilotLongitudinalControl and self.enabled_last:
+      self.hud_release = max(self.hud_release, CarControllerParams.HUD_RELEASE_FRAMES)
 
     self.lks_relay_tick = False
     self._update_lks_camera(CC, CS, can_sends)
     if self.CP.openpilotLongitudinalControl:
       for frame in CS.pcm_buttons_new:
         can_sends.append(bydcan.create_buttons_relay(self.packer, frame, lkas=self.lks_relay_tick))
-    # Engaged or post-LKS hold: full control path. LKS armed only: idle 0x1E2 + HUD.
-    send_op = CC.enabled or self.hold_steer > 0
-    send_hud = send_op or CS.lks_enabled
+    # claim: we TX 0x1E2+0x316. own_steer: EPS sync / block camera (enabled or LKS hold).
+    # hud_release alone: claim with camera 0x1E2 passthrough.
+    own_steer = CC.enabled or self.hold_steer > 0
+    claim = own_steer or self.hud_release > 0
 
     if self.frame % 2:
       cntr = (self.frame // 2) % 16
@@ -241,14 +246,10 @@ class CarController(CarControllerBase):
         self.ack_attempts = 0
         self.steer_fault_latched = False
 
-      # 0x1E2 runs for the whole engagement, not just while steering. STEER_REQ=0 carries
-      # the measured angle, which keeps the EPS fed and panda's angle reference synced.
-      # panda rate limits STEER_REQ=1 against our last frame, however old, so after a TX
-      # gap the first frames are REQ=0 and the first REQ=1 repeats the angle.
-      # hold_steer keeps that block for a few hundred ms after a real LKS press so the
-      # camera cannot grab the wheel before we snap it back off.
-      # Warmup on engage edge only (not when LKS-only HUD was already up).
-      if send_op and not self.send_op_last:
+      # 0x1E2 while own_steer: STEER_REQ=0 carries the measured angle so the EPS and
+      # panda angle reference stay synced. hold_steer blocks the camera after an LKS
+      # press until we snap it off. Warmup on engage edge only.
+      if own_steer and not self.send_op_last:
         self.warmup_left = CarControllerParams.STEER_WARMUP_FRAMES
 
       # Hands on the wheel: keep 0x1E2 (camera stays blocked) but drop STEER_REQ. A yank
@@ -269,7 +270,7 @@ class CarController(CarControllerBase):
         self.ack_cooldown = 0
         self.ack_attempts = 0
       else:
-        self.standby_slots = self.standby_slots + 1 if (send_op and CS.eps_standby) else 0
+        self.standby_slots = self.standby_slots + 1 if (own_steer and CS.eps_standby) else 0
         self.ack_cooldown = max(self.ack_cooldown - 1, 0)
         if CC.latActive and self.warmup_left == 0 and self.ack_slots == 0 and self.ack_cooldown == 0 and self.standby_slots >= 2:
           if self.ack_attempts < CarControllerParams.STEER_ACK_ATTEMPTS:
@@ -280,7 +281,9 @@ class CarController(CarControllerBase):
             self.steer_fault_latched = True
 
       ack = False
-      if self.warmup_left > 0:
+      if not own_steer:
+        lat_send = False
+      elif self.warmup_left > 0:
         lat_send = False
         self.warmup_left -= 1
       elif self.ack_slots > 0:
@@ -306,22 +309,30 @@ class CarController(CarControllerBase):
         self.apply_angle_last = apply_steer_angle_limits_vm(desired_angle, self.apply_angle_last, CS.out.vEgoRaw,
                                                             CS.out.steeringAngleDeg, lat_send, CarControllerParams, self.VM)
 
-      if send_hud:
-        req = lat_send if send_op else False
-        can_sends.append(bydcan.create_steering_control(self.packer, self.apply_angle_last, req, cntr, ack if send_op else False))
-        can_sends.append(bydcan.create_lkas_hud(self.packer, cntr, CS.lkas_hud, hud_control, CC.latActive, CS.lks_enabled))
+      if claim:
+        if own_steer:
+          can_sends.append(bydcan.create_steering_control(
+            self.packer, self.apply_angle_last, lat_send, cntr, ack))
+        elif CS.steer_adas_stock:
+          can_sends.append(bydcan.create_steering_control_passthrough(
+            self.packer, CS.steer_adas_stock, cntr))
+        else:
+          can_sends.append(bydcan.create_steering_control(
+            self.packer, self.apply_angle_last, False, cntr))
+        can_sends.append(bydcan.create_lkas_hud(
+          self.packer, cntr, CS.lkas_hud, hud_control, CC.latActive, CS.lks_enabled))
 
       # STEER_REQ=1 while EPS reports idle (LKS_PREPARED=1) for 200 ms => not accepted.
       # Only frames we actually sent with STEER_REQ=1 count.
-      if lat_send and send_op:
+      if lat_send and own_steer:
         self.not_accepted_frames = self.not_accepted_frames + 1 if not CS.eps_engaged else 0
       elif not CC.latActive or driver_yield:
         self.not_accepted_frames = 0
       CS.steer_not_accepted = self.steer_fault_latched or self.not_accepted_frames >= CarControllerParams.STEER_NOT_ACCEPTED_FRAMES
 
-      self.sending_last = send_hud
-      self.send_op_last = send_op
-      self.lat_send_last = lat_send if send_op else False
+      self.sending_last = claim
+      self.send_op_last = own_steer
+      self.lat_send_last = lat_send if own_steer else False
 
       # 50 Hz 0x32E: camera frame on stockAeb, else ours, idle when not longActive
       if self.CP.openpilotLongitudinalControl:
@@ -360,6 +371,8 @@ class CarController(CarControllerBase):
 
     if self.hold_steer > 0:
       self.hold_steer -= 1
+    if self.hud_release > 0:
+      self.hud_release -= 1
 
     new_actuators = actuators.as_builder()
     new_actuators.steeringAngleDeg = float(self.apply_angle_last)

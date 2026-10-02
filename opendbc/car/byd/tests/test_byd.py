@@ -204,13 +204,15 @@ class TestBydPcw(unittest.TestCase):
 
 
 def _cs(eps_engaged=True, lks_enabled=True, camera_lkas_state=0, angle=0.0, lks_btn_rising=False, eps_standby=False,
-        buttons=None, buttons_ts=0, steering_pressed=False, stock_aeb=False, acc_cmd=None, standstill=False, v_ego=20.0):
+        buttons=None, buttons_ts=0, steering_pressed=False, stock_aeb=False, acc_cmd=None, standstill=False, v_ego=20.0,
+        steer_adas=None):
   return SimpleNamespace(
     eps_engaged=eps_engaged,
     eps_standby=eps_standby,
     eps_idle=(not eps_engaged) and (not eps_standby),
     steer_not_accepted=False,
     lkas_hud={},
+    steer_adas_stock=steer_adas if steer_adas is not None else {},
     lks_enabled=lks_enabled,
     lks_btn_rising=lks_btn_rising,
     camera_lkas_state=camera_lkas_state,
@@ -284,18 +286,12 @@ class TestBydSteerNotAccepted(unittest.TestCase):
       _act, sends = ctrl.update(_cc(enabled=enabled, lat_active=lat_active), CS, 0)
       return {m[0]: m for m in sends}
 
-    # LKS off + disengaged: the camera owns 0x1E2 and 0x316
-    step(False, False, lks=False)
-    idle = step(False, False, lks=False)
-    self.assertNotIn(0x1E2, idle)
-    self.assertNotIn(0x316, idle)
-
-    # LKS on + disengaged: idle 0x1E2 + HUD (model / close-follow lanes)
-    step(False, False, lks=True)
-    lks_idle = step(False, False, lks=True)
-    self.assertIn(0x1E2, lks_idle)
-    self.assertIn(0x316, lks_idle)
-    self.assertEqual(_decode("STEERING_MODULE_ADAS", lks_idle[0x1E2])["STEER_REQ"], 0)
+    # Disengaged: camera owns 0x1E2 and 0x316 whether LKS latch is on or off
+    for lks in (False, True):
+      step(False, False, lks=lks)
+      idle = step(False, False, lks=lks)
+      self.assertNotIn(0x1E2, idle)
+      self.assertNotIn(0x316, idle)
 
     # engaged without lateral: idle heartbeat at the measured angle, we keep HUD
     step(True, False)
@@ -334,14 +330,14 @@ class TestBydSteerNotAccepted(unittest.TestCase):
     self.assertEqual(hud["LKS_MODE"], 2)
     self.assertEqual(hud["LEFT_LANE_STATE"], 1)
 
-  def _disengage_tail(self, ctrl, lks_after=False):
-    # lks_after=False: release to camera after the hold (legacy cancel path).
+  def _disengage_tail(self, ctrl, lks_after=False, steer_adas=None):
+    # lks_after no longer keeps claim; LKS latch alone does not TX.
     cam = {"LKAS_STATE": 4, "LKS_MODE": 2, "LEFT_LANE_STATE": 1, "RIGHT_LANE_STATE": 1}
     for _ in range(4):
       ctrl.update(_cc(), _cs(camera_lkas_state=2), 0)
     hud, steer = [], []
     for _ in range(CCP.HUD_RELEASE_FRAMES + 4):
-      CS = _cs(camera_lkas_state=4, lks_enabled=lks_after)
+      CS = _cs(camera_lkas_state=4, lks_enabled=lks_after, steer_adas=steer_adas)
       CS.lkas_hud = cam
       _act, sends = ctrl.update(_cc(enabled=False, lat_active=False), CS, 0)
       hud.append([_decode("LKAS_HUD_ADAS", m) for m in sends if m[0] == 0x316])
@@ -349,7 +345,7 @@ class TestBydSteerNotAccepted(unittest.TestCase):
     return hud, steer
 
   def test_long_control_hud_hold_after_disengage(self):
-    # LKS off after cancel: brief hold then camera owns HUD again.
+    # Hold paints our HUD; 0x1E2 is camera passthrough (empty stock => idle fallback).
     hud, steer = self._disengage_tail(_ctrl(long_control=True), lks_after=False)
     sent = [h for h in hud[:CCP.HUD_RELEASE_FRAMES] if h]
     self.assertGreater(len(sent), CCP.HUD_RELEASE_FRAMES // 2 - 2)
@@ -361,13 +357,26 @@ class TestBydSteerNotAccepted(unittest.TestCase):
     self.assertFalse(any(hud[CCP.HUD_RELEASE_FRAMES + 2:]))
     self.assertFalse(any(steer[CCP.HUD_RELEASE_FRAMES + 2:]))
 
-  def test_lks_on_keeps_hud_after_disengage(self):
+  def test_hud_release_passthrough_steer(self):
+    # Camera STEER_REQ=1 during HUD hold is forwarded (emergency LKA).
+    cam_steer = {
+      "STEER_REQ": 1, "STEER_REQ_ACTIVE_LOW": 0, "STEER_ANGLE": 4.5,
+      "ANGLE_RATE_LIMIT_UPPER": 299, "ANGLE_RATE_LIMIT_LOWER": -299,
+      "E2E_ALIVE_1": 1, "E2E_ALIVE_2": 1, "SET_ME_FF": 0xFF, "SET_ME_F": 0xF,
+    }
+    hud, steer = self._disengage_tail(_ctrl(long_control=True), steer_adas=cam_steer)
+    sent = [s for s in steer[:CCP.HUD_RELEASE_FRAMES] if s]
+    self.assertGreater(len(sent), CCP.HUD_RELEASE_FRAMES // 2 - 2)
+    for s in sent:
+      self.assertEqual(s[0]["STEER_REQ"], 1)
+      self.assertAlmostEqual(s[0]["STEER_ANGLE"], 4.5, places=1)
+    self.assertFalse(any(steer[CCP.HUD_RELEASE_FRAMES + 2:]))
+
+  def test_lks_on_does_not_claim_after_disengage(self):
+    # LKS latch alone does not keep 0x1E2/0x316 after HUD release ends.
     hud, steer = self._disengage_tail(_ctrl(long_control=True), lks_after=True)
-    self.assertTrue(any(hud[CCP.HUD_RELEASE_FRAMES + 2:]))
-    self.assertTrue(any(steer[CCP.HUD_RELEASE_FRAMES + 2:]))
-    for s in steer[CCP.HUD_RELEASE_FRAMES + 2:]:
-      for f in s:
-        self.assertEqual(f["STEER_REQ"], 0)
+    self.assertFalse(any(hud[CCP.HUD_RELEASE_FRAMES + 2:]))
+    self.assertFalse(any(steer[CCP.HUD_RELEASE_FRAMES + 2:]))
 
   def test_no_hud_hold_without_long_control(self):
     hud, steer = self._disengage_tail(_ctrl(long_control=False), lks_after=False)
@@ -746,6 +755,9 @@ class TestBydDbcObserve(unittest.TestCase):
     CP = CarInterface.get_params(CAR.BYD_ATTO_3, fp, [], False, False, False)
     self.assertFalse(CP.openpilotLongitudinalControl)
     self.assertTrue(CP.pcmCruise)
+    self.assertTrue(CP.ignitionLineAndCan)
+    self.assertTrue(CP.hudLaneFromModel)
+    self.assertTrue(CP.hudCloseFollowWarn)
     self.assertEqual(CP.safetyConfigs[0].safetyParam, int(BydSafetyFlags.LKS_ON))
 
     CP_long = CarInterface.get_params(CAR.BYD_ATTO_3, fp, [], True, False, False)
