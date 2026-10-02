@@ -475,6 +475,7 @@ struct CarParams {
   minEnableSpeed @7 :Float32;
   minSteerSpeed @8 :Float32;
   steerAtStandstill @77 :Bool;  # is steering available at standstill? just check if it faults
+  ignitionLineAndCan @78 :Bool;  # require line and CAN ignition (default is OR)
   safetyConfigs @62 :List(SafetyConfig);
   alternativeExperience @65 :Int16;      # panda flag for features like no disengage on gas
 
