@@ -77,7 +77,7 @@ def create_acc_cmd_passthrough(packer, stock_values: dict, counter: int):
 
 
 def create_acc_hud(packer, stock_values: dict, counter: int, acc_state: int, set_speed_kph: float, gap_bars: int,
-                   lead_visible: bool):
+                   lead_visible: bool, gas_override: bool = False, lead_follow_status: int = 0):
   # byte2 is 0x04 with ACC_STATE in bits 3-5 and ACC_ON1 in bit 6.
   # ACC_ON2 is the middle state bit; writing both keeps the packer from clearing it.
   # SET_DISTANCE 1 is closest, 4 is farthest. 0 keeps the camera's gap.
@@ -101,6 +101,13 @@ def create_acc_hud(packer, stock_values: dict, counter: int, acc_state: int, set
     "SET_DISTANCE": distance,
     "LEAD_VISIBLE": 1 if lead_visible else 0,
   }
+  # Stock holds byte3 at 0x21 for the whole override, mirrors included.
+  if gas_override:
+    values["ACC_OVERRIDE"] = 1
+    values["SET_ME_B3"] = 1
+  # Cluster shading runs inverse to leadFollowStatus: green is 3 on the wire.
+  if lead_follow_status > 0:
+    values["LEAD_SHADING"] = 4 - lead_follow_status
   return packer.make_can_msg("ACC_HUD_ADAS", 0, values)
 
 
