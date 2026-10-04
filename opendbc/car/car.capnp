@@ -408,6 +408,7 @@ struct CarControl {
     rightLaneDepart @8: Bool;
     leftLaneDepart @9: Bool;
     leadDistanceBars @10: Int8;  # 1-3: 1 is closest, 3 is farthest. some ports may utilize 2-4 bars instead
+    leadFollowStatus @11: UInt8;  # 0 none, 1 good, 2 closer than the set gap, 3 too close
 
     # not used with the dash, TODO: separate structs for dash UI and device UI
     audibleAlert @5: AudibleAlert;
@@ -477,6 +478,7 @@ struct CarParams {
   steerAtStandstill @77 :Bool;  # is steering available at standstill? just check if it faults
   ignitionLineAndCan @78 :Bool;  # require line and CAN ignition (default is OR)
   hudLaneFromModel @79 :Bool;  # left/rightLaneVisible from model laneLineProbs (default always visible)
+  hudLeadShading @80 :Bool;  # leadFollowStatus reflects the gap to the lead (cluster shading)
   safetyConfigs @62 :List(SafetyConfig);
   alternativeExperience @65 :Int16;      # panda flag for features like no disengage on gas
 
