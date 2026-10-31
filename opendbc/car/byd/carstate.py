@@ -166,6 +166,8 @@ class CarState(CarStateBase):
 
     # PCW pre-warning (0x32F byte2 0x36).
     ret.stockFcw = int(cp_cam.vl["PCW_ADAS"]["PCW_STATE"]) == 0x36
+    # 0x38a byte 4 warn nibble (debug; unvalidated semantics).
+    ret.adasFcwDebug = bool(cp_cam.vl["FCW_ADAS"]["FCW_WARN_A"]) or bool(cp_cam.vl["FCW_ADAS"]["FCW_WARN_B"])
     # Hard camera decel while ACC not active.
     self.acc_cmd_stock = copy.copy(cp_cam.vl["ACC_CMD"])
     ret.stockAeb = acc_state not in (3, 5) and cp_cam.vl["ACC_CMD"]["ACCEL_CMD"] < self.CCP.STOCK_AEB_ACCEL
