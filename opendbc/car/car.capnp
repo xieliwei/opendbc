@@ -204,6 +204,7 @@ struct CarState {
   lowSpeedAlert @56 :Bool;  # lost steering control due to a dynamic min steering speed
   blockPcmEnable @60 :Bool;  # whether to allow PCM to enable this frame
   carNotReady @61 :Bool;  # car is transiently refusing engagement, used to prevent a fault if engaged
+  pcwStageDebug @62 :UInt8;  # debug: BYD raw PCW warning stage (0x32F byte2)
 
   # cruise state
   cruiseState @10 :CruiseState;
